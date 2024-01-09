@@ -1,0 +1,40 @@
+From 954059eebbab80d35e8819972e499b2a2957a301 Mon Sep 17 00:00:00 2001
+From: Sean Maher <spvw@chromium.org>
+Date: Tue, 9 Jan 2024 13:57:25 -0500
+Subject: [PATCH] fan out jobs on concurrency increase
+
+---
+ base/task/thread_pool/thread_group_semaphore.cc | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/base/task/thread_pool/thread_group_semaphore.cc b/base/task/thread_pool/thread_group_semaphore.cc
+index 2bd023c65c974..05fb7bfa52673 100644
+--- a/base/task/thread_pool/thread_group_semaphore.cc
++++ b/base/task/thread_pool/thread_group_semaphore.cc
+@@ -173,6 +173,23 @@ void ThreadGroupSemaphore::UpdateSortKey(TaskSource::Transaction transaction) {
+ void ThreadGroupSemaphore::PushTaskSourceAndWakeUpWorkers(
+     RegisteredTaskSourceAndTransaction transaction_with_task_source) {
+   SemaphoreScopedCommandsExecutor executor(this);
++  if (transaction_with_task_source.task_source->GetRemainingConcurrency() >=
++          1 &&
++      transaction_with_task_source.task_source->immediate_heap_handle()
++          .IsValid()) {
++    CheckedAutoLock auto_lock(lock_);
++    AnnotateAcquiredLockAlias alias(lock_, executor.outer()->lock_);
++    // This is a job task source which is currently enqueued, but had its max
++    // concurrency increased. Given that jobs fanout rather than signaling in
++    // advance, workers need to be waken up or else no worker will wake up to
++    // run this.
++    int signals =
++        std::min({2, static_cast<int>(transaction_with_task_source.task_source
++                                          ->GetRemainingConcurrency())});
++    for (int i = 0; i < signals; ++i) {
++      executor.ScheduleSignal();
++    }
++  }
+   PushTaskSourceAndWakeUpWorkersImpl(&executor,
+                                      std::move(transaction_with_task_source));
+ }
+-- 
+2.43.0.472.g3155946c3a-goog
+
