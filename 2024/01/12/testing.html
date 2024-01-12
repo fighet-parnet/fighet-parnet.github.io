@@ -1,0 +1,297 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<!-- Created by htmlize-1.57 in css mode. -->
+<html>
+  <head>
+    <title>thread_group_impl.h</title>
+    <style type="text/css">
+    <!--
+      body {
+        color: #c7c9cb;
+        background-color: #232530;
+      }
+      .button {
+        /* button */
+        color: #fab795;
+        text-decoration: underline;
+      }
+      .comment {
+        /* font-lock-comment-face */
+        color: #4e5059;
+        font-style: italic;
+      }
+      .comment-delimiter {
+        /* font-lock-comment-delimiter-face */
+        color: #4e5059;
+        font-style: italic;
+      }
+      .constant {
+        /* font-lock-constant-face */
+        color: #f09383;
+      }
+      .function-name {
+        /* font-lock-function-name-face */
+        color: #87ceeb;
+      }
+      .hl-line {
+        /* hl-line */
+        background-color: #1c1e26;
+      }
+      .keyword {
+        /* font-lock-keyword-face */
+        color: #b877db;
+      }
+      .negation-char {
+        /* font-lock-negation-char-face */
+        color: #87ceeb;
+        font-weight: bold;
+      }
+      .preprocessor {
+        /* font-lock-preprocessor-face */
+        color: #87ceeb;
+        font-weight: bold;
+      }
+      .rainbow-delimiters-depth-1 {
+        /* rainbow-delimiters-depth-1-face */
+        color: #21bfc2;
+      }
+      .rainbow-delimiters-depth-2 {
+        /* rainbow-delimiters-depth-2-face */
+        color: #6c6f93;
+      }
+      .rainbow-delimiters-depth-3 {
+        /* rainbow-delimiters-depth-3-face */
+        color: #09f7a0;
+      }
+      .rainbow-delimiters-depth-4 {
+        /* rainbow-delimiters-depth-4-face */
+        color: #b877db;
+      }
+      .rainbow-delimiters-depth-5 {
+        /* rainbow-delimiters-depth-5-face */
+        color: #87ceeb;
+      }
+      .string {
+        /* font-lock-string-face */
+        color: #fab795;
+      }
+      .type {
+        /* font-lock-type-face */
+        color: #87ceeb;
+      }
+      .variable-name {
+        /* font-lock-variable-name-face */
+        color: #e95678;
+      }
+
+      a {
+        color: inherit;
+        background-color: inherit;
+        font: inherit;
+        text-decoration: inherit;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+    -->
+    </style>
+  </head>
+  <body>
+    <pre>
+<span class="comment-delimiter">// </span><span class="comment">Copyright 2016 The Chromium Authors
+</span><span class="comment-delimiter">// </span><span class="comment">Use of this source code is governed by a BSD-style license that can be
+</span><span class="comment-delimiter">// </span><span class="comment">found in the LICENSE file.
+</span>
+<span class="preprocessor">#if</span><span class="negation-char"><span class="preprocessor">n</span></span><span class="preprocessor">def</span> BASE_TASK_THREAD_POOL_THREAD_GROUP_IMPL_H_
+<span class="preprocessor">#define</span> <span class="variable-name">BASE_TASK_THREAD_POOL_THREAD_GROUP_IMPL_H_</span>
+
+<span class="preprocessor">#include</span> <span class="string"><span class="rainbow-delimiters-depth-1"><span class="button">&lt;</span></span></span><span class="string"><span class="button">vector</span></span><span class="string"><span class="rainbow-delimiters-depth-1"><span class="button">&gt;</span></span></span>
+
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/base_export.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/gtest_prod_util.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/strings/string_piece.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/synchronization/condition_variable.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/synchronization/waitable_event.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/task/thread_pool/task_source.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/task/thread_pool/thread_group.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/task/thread_pool/thread_group_worker_delegate.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/task/thread_pool/tracked_ref.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/task/thread_pool/worker_thread_set.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/task/thread_pool/worker_thread_waitable_event.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"base/time/time.h"</span></span>
+<span class="preprocessor">#include</span> <span class="string"><span class="button">"third_party/abseil-cpp/absl/types/optional.h"</span></span>
+
+<span class="keyword">namespace</span> <span class="constant">base</span> <span class="rainbow-delimiters-depth-1">{</span>
+
+<span class="keyword">class</span> <span class="type">WorkerThreadObserver</span>;
+
+<span class="keyword">namespace</span> <span class="constant">internal</span> <span class="rainbow-delimiters-depth-2">{</span>
+
+<span class="keyword">class</span> <span class="type">TaskTracker</span>;
+
+<span class="comment-delimiter">// </span><span class="comment">A group of |WorkerThreadWaitableEvent|s that run |Task|s.
+</span><span class="comment-delimiter">//</span><span class="comment">
+</span><span class="comment-delimiter">// </span><span class="comment">The thread group doesn't create threads until Start() is called. Tasks can be
+</span><span class="comment-delimiter">// </span><span class="comment">posted at any time but will not run until after Start() is called.
+</span><span class="comment-delimiter">//</span><span class="comment">
+</span><span class="comment-delimiter">// </span><span class="comment">This class is thread-safe.
+</span><span class="keyword">class</span> <span class="type">BASE_EXPORT</span> <span class="type">ThreadGroupImpl</span> : <span class="keyword">public</span> <span class="type">ThreadGroup</span> <span class="rainbow-delimiters-depth-3">{</span>
+ <span class="keyword">public</span>:
+  <span class="comment-delimiter">// </span><span class="comment">Constructs a group without workers.
+</span>  <span class="comment-delimiter">//</span><span class="comment">
+</span>  <span class="comment-delimiter">// </span><span class="comment">|histogram_label| is used to label the thread group's histograms as
+</span>  <span class="comment-delimiter">// </span><span class="comment">"ThreadPool." + histogram_name + "." + |histogram_label| + extra suffixes.
+</span>  <span class="comment-delimiter">// </span><span class="comment">It must not be empty. |thread group_label| is used to label the thread
+</span>  <span class="comment-delimiter">// </span><span class="comment">group's threads, it must not be empty. |thread_type_hint| is the preferred
+</span>  <span class="comment-delimiter">// </span><span class="comment">thread type; the actual thread type depends on shutdown state and platform
+</span>  <span class="comment-delimiter">// </span><span class="comment">capabilities. |task_tracker| keeps track of tasks.
+</span>  <span class="function-name">ThreadGroupImpl</span><span class="rainbow-delimiters-depth-4">(</span><span class="type">StringPiece</span> <span class="variable-name">histogram_label</span>,
+                  <span class="type">StringPiece</span> <span class="variable-name">thread_group_label</span>,
+                  <span class="type">ThreadType</span> <span class="variable-name">thread_type_hint</span>,
+                  <span class="type">TrackedRef</span><span class="rainbow-delimiters-depth-5">&lt;</span><span class="type">TaskTracker</span><span class="rainbow-delimiters-depth-5">&gt;</span> <span class="variable-name">task_tracker</span>,
+                  <span class="type">TrackedRef</span><span class="rainbow-delimiters-depth-5">&lt;</span>Delegate<span class="rainbow-delimiters-depth-5">&gt;</span> <span class="variable-name">delegate</span><span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Creates threads, allowing existing and future tasks to run. The thread
+</span>  <span class="comment-delimiter">// </span><span class="comment">group runs at most |max_tasks| / `max_best_effort_tasks` unblocked task
+</span>  <span class="comment-delimiter">// </span><span class="comment">with any / BEST_EFFORT priority concurrently. It reclaims unused threads
+</span>  <span class="comment-delimiter">// </span><span class="comment">after `suggested_reclaim_time`. It uses `service_thread_task_runner` to
+</span>  <span class="comment-delimiter">// </span><span class="comment">monitor for blocked tasks, `service_thread_task_runner` is used to setup
+</span>  <span class="comment-delimiter">// </span><span class="comment">FileDescriptorWatcher on worker threads. It must refer to a Thread with
+</span>  <span class="comment-delimiter">// </span><span class="comment">MessagePumpType::IO. If specified, it notifies |worker_thread_observer|
+</span>  <span class="comment-delimiter">// </span><span class="comment">when a worker enters and exits its main function (the observer must not be
+</span>  <span class="comment-delimiter">// </span><span class="comment">destroyed before JoinForTesting() has returned). |worker_environment|
+</span>  <span class="comment-delimiter">// </span><span class="comment">specifies the environment in which tasks are executed.
+</span>  <span class="comment-delimiter">// </span><span class="comment">|may_block_threshold| is the timeout after which a task in a MAY_BLOCK
+</span>  <span class="comment-delimiter">// </span><span class="comment">ScopedBlockingCall is considered blocked (the thread group will choose an
+</span>  <span class="comment-delimiter">// </span><span class="comment">appropriate value if none is specified).
+</span>  <span class="comment-delimiter">// </span><span class="comment">`synchronous_thread_start_for_testing` is true if this ThreadGroup
+</span>  <span class="comment-delimiter">// </span><span class="comment">should synchronously wait for OnMainEntry() after starting each worker. Can
+</span>  <span class="comment-delimiter">// </span><span class="comment">only be called once. CHECKs on failure.
+</span>  <span class="type">void</span> <span class="function-name">Start</span><span class="rainbow-delimiters-depth-4">(</span><span class="type">size_t</span> <span class="variable-name">max_tasks</span>,
+             <span class="type">size_t</span> <span class="variable-name">max_best_effort_tasks</span>,
+             <span class="type">TimeDelta</span> <span class="variable-name">suggested_reclaim_time</span>,
+             <span class="type">scoped_refptr</span><span class="rainbow-delimiters-depth-5">&lt;</span>SingleThreadTaskRunner<span class="rainbow-delimiters-depth-5">&gt;</span> <span class="variable-name">service_thread_task_runner</span>,
+             <span class="type">WorkerThreadObserver</span>* <span class="variable-name">worker_thread_observer</span>,
+             <span class="type">WorkerEnvironment</span> <span class="variable-name">worker_environment</span>,
+             <span class="type">bool</span> <span class="variable-name">synchronous_thread_start_for_testing</span> = <span class="constant">false</span>,
+             <span class="constant">absl</span>::<span class="type">optional</span><span class="rainbow-delimiters-depth-5">&lt;</span><span class="type">TimeDelta</span><span class="rainbow-delimiters-depth-5">&gt;</span> <span class="variable-name">may_block_threshold</span> =
+                 <span class="constant">absl</span>::optional<span class="rainbow-delimiters-depth-5">&lt;</span><span class="type">TimeDelta</span><span class="rainbow-delimiters-depth-5">&gt;()</span><span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="function-name">ThreadGroupImpl</span><span class="rainbow-delimiters-depth-4">(</span><span class="keyword">const</span> <span class="type">ThreadGroupImpl</span>&amp;<span class="rainbow-delimiters-depth-4">)</span> = <span class="keyword">delete</span>;
+  <span class="type">ThreadGroupImpl</span>&amp; <span class="keyword">operator</span><span class="function-name">=</span><span class="rainbow-delimiters-depth-4">(</span><span class="keyword">const</span> <span class="type">ThreadGroupImpl</span>&amp;<span class="rainbow-delimiters-depth-4">)</span> = <span class="keyword">delete</span>;
+  <span class="comment-delimiter">// </span><span class="comment">Destroying a ThreadGroupImpl returned by Create() is not allowed
+</span>  <span class="comment-delimiter">// </span><span class="comment">in production; it is always leaked. In tests, it can only be destroyed
+</span>  <span class="comment-delimiter">// </span><span class="comment">after JoinForTesting() has returned.
+</span>  ~<span class="function-name">ThreadGroupImpl</span><span class="rainbow-delimiters-depth-4">()</span> <span class="keyword">override</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">ThreadGroup:
+</span>  <span class="type">void</span> <span class="function-name">JoinForTesting</span><span class="rainbow-delimiters-depth-4">()</span> <span class="keyword">override</span>;
+  <span class="type">void</span> <span class="function-name">DidUpdateCanRunPolicy</span><span class="rainbow-delimiters-depth-4">()</span> <span class="keyword">override</span>;
+  <span class="type">void</span> <span class="function-name">OnShutdownStarted</span><span class="rainbow-delimiters-depth-4">()</span> <span class="keyword">override</span>;
+  <span class="constant">std</span>::<span class="type">unique_ptr</span><span class="rainbow-delimiters-depth-4">&lt;</span>BaseScopedCommandsExecutor<span class="rainbow-delimiters-depth-4">&gt;</span> <span class="function-name">GetExecutor</span><span class="rainbow-delimiters-depth-4">()</span> <span class="keyword">override</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Waits until at least |n| workers are idle. Note that while workers are
+</span>  <span class="comment-delimiter">// </span><span class="comment">disallowed from cleaning up during this call: tests using a custom
+</span>  <span class="comment-delimiter">// </span><span class="comment">|suggested_reclaim_time_| need to be careful to invoke this swiftly after
+</span>  <span class="comment-delimiter">// </span><span class="comment">unblocking the waited upon workers as: if a worker is already detached by
+</span>  <span class="comment-delimiter">// </span><span class="comment">the time this is invoked, it will never make it onto the idle set and
+</span>  <span class="comment-delimiter">// </span><span class="comment">this call will hang.
+</span>  <span class="type">void</span> <span class="function-name">WaitForWorkersIdleForTesting</span><span class="rainbow-delimiters-depth-4">(</span><span class="type">size_t</span> <span class="variable-name">n</span><span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Waits until at least |n| workers are idle.
+</span>  <span class="type">void</span> <span class="function-name">WaitForWorkersIdleLockRequiredForTesting</span><span class="rainbow-delimiters-depth-4">(</span><span class="type">size_t</span> <span class="variable-name">n</span><span class="rainbow-delimiters-depth-4">)</span>
+      EXCLUSIVE_LOCKS_REQUIRED<span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Waits until all workers are idle.
+</span>  <span class="type">void</span> <span class="function-name">WaitForAllWorkersIdleForTesting</span><span class="rainbow-delimiters-depth-4">()</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Waits until |n| workers have cleaned up (went through
+</span>  <span class="comment-delimiter">// </span><span class="comment">WaitableEventWorkerDelegate::OnMainExit()) since the last call to
+</span>  <span class="comment-delimiter">// </span><span class="comment">WaitForWorkersCleanedUpForTesting() (or Start() if that wasn't called yet).
+</span>  <span class="type">void</span> <span class="function-name">WaitForWorkersCleanedUpForTesting</span><span class="rainbow-delimiters-depth-4">(</span><span class="type">size_t</span> <span class="variable-name">n</span><span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Returns the number of workers in this thread group.
+</span>  <span class="type">size_t</span> <span class="function-name">NumberOfWorkersForTesting</span><span class="rainbow-delimiters-depth-4">()</span> <span class="keyword">const</span>;
+  <span class="comment-delimiter">// </span><span class="comment">Returns the number of workers that are idle (i.e. not running tasks).
+</span>  <span class="type">size_t</span> <span class="function-name">NumberOfIdleWorkersForTesting</span><span class="rainbow-delimiters-depth-4">()</span> <span class="keyword">const</span>;
+
+ <span class="keyword">private</span>:
+  <span class="keyword">class</span> <span class="type">ScopedCommandsExecutor</span>;
+  <span class="keyword">class</span> <span class="type">WaitableEventWorkerDelegate</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">friend tests so that they can access |blocked_workers_poll_period| and
+</span>  <span class="comment-delimiter">// </span><span class="comment">may_block_threshold(), both in ThreadGroup.
+</span>  <span class="keyword">friend</span> <span class="keyword">class</span> <span class="type">ThreadGroupImplBlockingTest</span>;
+  <span class="keyword">friend</span> <span class="keyword">class</span> <span class="type">ThreadGroupImplMayBlockTest</span>;
+  FRIEND_TEST_ALL_PREFIXES<span class="rainbow-delimiters-depth-4">(</span>ThreadGroupImplBlockingTest,
+                           ThreadBlockUnblockPremature<span class="rainbow-delimiters-depth-4">)</span>;
+  FRIEND_TEST_ALL_PREFIXES<span class="rainbow-delimiters-depth-4">(</span>ThreadGroupImplBlockingTest,
+                           ThreadBlockUnblockPrematureBestEffort<span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">ThreadGroup:
+</span>  <span class="type">void</span> <span class="function-name">UpdateSortKey</span><span class="rainbow-delimiters-depth-4">(</span><span class="constant">TaskSource</span>::<span class="type">Transaction</span> <span class="variable-name">transaction</span><span class="rainbow-delimiters-depth-4">)</span> <span class="keyword">override</span>;
+  <span class="type">void</span> <span class="function-name">PushTaskSourceAndWakeUpWorkers</span><span class="rainbow-delimiters-depth-4">(</span>
+<span class="hl-line">      </span><span class="type"><span class="hl-line">RegisteredTaskSourceAndTransaction</span></span><span class="hl-line"> </span><span class="variable-name"><span class="hl-line">transaction_with_task_source</span></span><span class="rainbow-delimiters-depth-4"><span class="hl-line">)</span></span><span class="hl-line"> </span><span class="keyword"><span class="hl-line">override</span></span><span class="hl-line">;
+</span>  <span class="type">void</span> <span class="function-name">EnsureEnoughWorkersLockRequired</span><span class="rainbow-delimiters-depth-4">(</span><span class="type">BaseScopedCommandsExecutor</span>* <span class="variable-name">executor</span><span class="rainbow-delimiters-depth-4">)</span>
+      <span class="keyword">override</span> EXCLUSIVE_LOCKS_REQUIRED<span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span>;
+  <span class="type">void</span> <span class="function-name">AdjustMaxTasks</span><span class="rainbow-delimiters-depth-4">()</span> <span class="keyword">override</span>;
+  <span class="comment-delimiter">// </span><span class="comment">Creates a worker and schedules its start, if needed, to maintain one idle
+</span>  <span class="comment-delimiter">// </span><span class="comment">worker, |max_tasks_| permitting.
+</span>  <span class="type">void</span> <span class="function-name">MaintainAtLeastOneIdleWorkerLockRequired</span><span class="rainbow-delimiters-depth-4">(</span>
+      <span class="type">ScopedCommandsExecutor</span>* <span class="variable-name">executor</span><span class="rainbow-delimiters-depth-4">)</span> EXCLUSIVE_LOCKS_REQUIRED<span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Creates a worker, adds it to the thread group, schedules its start and
+</span>  <span class="comment-delimiter">// </span><span class="comment">returns it. Cannot be called before Start().
+</span>  <span class="type">scoped_refptr</span><span class="rainbow-delimiters-depth-4">&lt;</span>WorkerThreadWaitableEvent<span class="rainbow-delimiters-depth-4">&gt;</span> <span class="function-name">CreateAndRegisterWorkerLockRequired</span><span class="rainbow-delimiters-depth-4">(</span>
+      <span class="type">ScopedCommandsExecutor</span>* <span class="variable-name">executor</span><span class="rainbow-delimiters-depth-4">)</span> EXCLUSIVE_LOCKS_REQUIRED<span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="type">bool</span> <span class="function-name">IsOnIdleSetLockRequired</span><span class="rainbow-delimiters-depth-4">(</span><span class="type">WorkerThread</span>* <span class="variable-name">worker</span><span class="rainbow-delimiters-depth-4">)</span> <span class="keyword">const</span>
+      <span class="type">EXCLUSIVE_LOCKS_REQUIRED</span><span class="rainbow-delimiters-depth-4">(</span><span class="variable-name">lock_</span><span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Returns the number of workers that are awake (i.e. not on the idle set).
+</span>  <span class="type">size_t</span> <span class="function-name">GetNumAwakeWorkersLockRequired</span><span class="rainbow-delimiters-depth-4">()</span> <span class="keyword">const</span> <span class="type">EXCLUSIVE_LOCKS_REQUIRED</span><span class="rainbow-delimiters-depth-4">(</span><span class="variable-name">lock_</span><span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="type">bool</span> <span class="function-name">IsOnIdleSetLockRequired</span><span class="rainbow-delimiters-depth-4">(</span><span class="type">WorkerThreadWaitableEvent</span>* <span class="variable-name">worker</span><span class="rainbow-delimiters-depth-4">)</span> <span class="keyword">const</span>
+      <span class="type">EXCLUSIVE_LOCKS_REQUIRED</span><span class="rainbow-delimiters-depth-4">(</span><span class="variable-name">lock_</span><span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">All workers owned by this thread group.
+</span>  <span class="constant">std</span>::<span class="type">vector</span><span class="rainbow-delimiters-depth-4">&lt;</span><span class="type">scoped_refptr</span><span class="rainbow-delimiters-depth-5">&lt;</span>WorkerThreadWaitableEvent<span class="rainbow-delimiters-depth-5">&gt;</span><span class="rainbow-delimiters-depth-4">&gt;</span> <span class="variable-name">workers_</span>
+      GUARDED_BY<span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span>;
+  size_t <span class="type">worker_sequence_num_</span> <span class="function-name">GUARDED_BY</span><span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span> = 0;
+
+  <span class="comment-delimiter">// </span><span class="comment">Ordered set of idle workers; the order uses pointer comparison, this is
+</span>  <span class="comment-delimiter">// </span><span class="comment">arbitrary but stable. Initially, all workers are on this set. A worker is
+</span>  <span class="comment-delimiter">// </span><span class="comment">removed from the set before its WakeUp() function is called and when it
+</span>  <span class="comment-delimiter">// </span><span class="comment">receives work from GetWork() (a worker calls GetWork() when its sleep
+</span>  <span class="comment-delimiter">// </span><span class="comment">timeout expires, even if its WakeUp() method hasn't been called). A worker
+</span>  <span class="comment-delimiter">// </span><span class="comment">is inserted on this set when it receives nullptr from GetWork().
+</span>  WorkerThreadSet <span class="type">idle_workers_set_</span> <span class="function-name">GUARDED_BY</span><span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Signaled when a worker is added to the idle workers set.
+</span>  <span class="constant">std</span>::<span class="type">unique_ptr</span><span class="rainbow-delimiters-depth-4">&lt;</span>ConditionVariable<span class="rainbow-delimiters-depth-4">&gt;</span> <span class="variable-name">idle_workers_set_cv_for_testing_</span>
+      GUARDED_BY<span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Signaled, if non-null, when |num_workers_cleaned_up_for_testing_| is
+</span>  <span class="comment-delimiter">// </span><span class="comment">incremented.
+</span>  <span class="constant">std</span>::<span class="type">unique_ptr</span><span class="rainbow-delimiters-depth-4">&lt;</span>ConditionVariable<span class="rainbow-delimiters-depth-4">&gt;</span> <span class="variable-name">num_workers_cleaned_up_for_testing_cv_</span>
+      GUARDED_BY<span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Set at the start of JoinForTesting().
+</span>  <span class="type">bool</span> <span class="variable-name">join_for_testing_started_</span> GUARDED_BY<span class="rainbow-delimiters-depth-4">(</span>lock_<span class="rainbow-delimiters-depth-4">)</span> = <span class="constant">false</span>;
+
+  <span class="comment-delimiter">// </span><span class="comment">Ensures recently cleaned up workers (ref.
+</span>  <span class="comment-delimiter">// </span><span class="comment">WaitableEventWorkerDelegate::CleanupLockRequired()) had time to exit as
+</span>  <span class="comment-delimiter">// </span><span class="comment">they have a raw reference to |this| (and to TaskTracker) which can
+</span>  <span class="comment-delimiter">// </span><span class="comment">otherwise result in racy use-after-frees per no longer being part of
+</span>  <span class="comment-delimiter">// </span><span class="comment">|workers_| and hence not being explicitly joined in JoinForTesting():
+</span>  <span class="comment-delimiter">// </span><span class="comment">https://crbug.com/810464. Uses AtomicRefCount to make its only public
+</span>  <span class="comment-delimiter">// </span><span class="comment">method thread-safe.
+</span>  <span class="type">TrackedRefFactory</span><span class="rainbow-delimiters-depth-4">&lt;</span><span class="type">ThreadGroup</span><span class="rainbow-delimiters-depth-4">&gt;</span> <span class="variable-name">tracked_ref_factory_</span>;
+<span class="rainbow-delimiters-depth-3">}</span>;
+
+<span class="rainbow-delimiters-depth-2">}</span>  <span class="comment-delimiter">// </span><span class="comment">namespace internal
+</span><span class="rainbow-delimiters-depth-1">}</span>  <span class="comment-delimiter">// </span><span class="comment">namespace base
+</span>
+<span class="preprocessor">#endif</span>  <span class="comment-delimiter">// </span><span class="comment">BASE_TASK_THREAD_POOL_THREAD_GROUP_IMPL_H_
+</span></pre>
+  </body>
+</html>
